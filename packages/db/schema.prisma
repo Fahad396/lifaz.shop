@@ -1,52 +1,100 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
+// Prisma schema for Lifaz E-Commerce Architecture
+// Local Development: SQLite (zero-config, single local file)
+// Production VPS: Switch provider to "postgresql"
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
+}
+
+model Product {
+  id          String   @id @default(uuid())
+  slug        String   @unique
+  title       String
+  description String
+  price       Float
+  category    String
+  drop        String
+  dropNumber  Int      @default(1)
+  color       String
+  colorHex    String   @default("#111111")
+  imagesJson  String   // JSON array of image URLs
+  detailsJson String   // JSON array of details
+  rating      Float    @default(5.0)
+  reviewCount Int      @default(0)
+  featured    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  variants    ProductVariant[]
+}
+
+model ProductVariant {
+  id        String   @id @default(uuid())
+  productId String
+  size      String
+  color     String
+  sku       String   @unique
+  inventory Int      @default(10)
+  inStock   Boolean  @default(true)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model Order {
+  id            String   @id @default(uuid())
+  orderNumber   String   @unique
+  customerName  String
+  customerPhone String
+  customerEmail String
+  division      String
+  area          String
+  address       String
+  paymentMethod String   // "cod" | "bkash" | "card"
+  bkashTrxId    String?
+  subtotal      Float
+  shippingCost  Float
+  total         Float
+  status        String   @default("Order Confirmed")
+  itemsJson     String   // Serialized order line items
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Category {
+  id        String   @id @default(uuid())
+  name      String   @unique
+  slug      String   @unique
+  createdAt DateTime @default(now())
+}
+
+model Inquiry {
+  id           String   @id @default(uuid())
+  ticketNumber String   @unique
+  name         String
+  email        String
+  phone        String?
+  subject      String
+  message      String
+  orderNumber  String?
+  status       String   @default("Open")
+  createdAt    DateTime @default(now())
+}
+
+model Subscriber {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  subscribedAt DateTime @default(now())
 }
 
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
+  name      String?
+  role      String   @default("CUSTOMER") // "ADMIN" | "CUSTOMER"
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  wishlistItems WishlistItem[]
-  reviews       Review[]
-}
-
-model WishlistItem {
-  id        String   @id @default(uuid())
-  userId    String
-  productId String   // Shopify Product ID
-  variantId String?  // Shopify Variant ID
-  createdAt DateTime @default(now())
-
-  user User @relation(fields: [userId], references: [id])
-}
-
-model Review {
-  id        String   @id @default(uuid())
-  userId    String
-  productId String
-  rating    Int
-  content   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  user User @relation(fields: [userId], references: [id])
-}
-
-model BackInStockNotification {
-  id        String   @id @default(uuid())
-  email     String
-  productId String
-  variantId String
-  fulfilled Boolean  @default(false)
-  createdAt DateTime @default(now())
 }

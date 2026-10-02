@@ -1,0 +1,52 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  wishlistItems WishlistItem[]
+  reviews       Review[]
+}
+
+model WishlistItem {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String   // Shopify Product ID
+  variantId String?  // Shopify Variant ID
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  productId String
+  rating    Int
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model BackInStockNotification {
+  id        String   @id @default(uuid())
+  email     String
+  productId String
+  variantId String
+  fulfilled Boolean  @default(false)
+  createdAt DateTime @default(now())
+}

@@ -1,247 +1,139 @@
-# Single-VPS Production Deployment Guide (No Docker / No External DB)
+# Single-VPS & Private Server Production Deployment Guide
+## 100% Self-Hosted on Debian 12/13 or Ubuntu 22.04/24.04 LTS (0 Cloud Dependencies)
 
-This guide provides complete, step-by-step instructions to deploy the entire **LIFAZ Atelier** project onto a **single Linux VPS** (Ubuntu 22.04 / 24.04 LTS) running native **Node.js 20 LTS**, **PostgreSQL**, **PM2**, and **Nginx** with free SSL certificates via **Let's Encrypt Certbot**.
+This guide provides complete instructions to deploy the entire **LIFAZ Atelier** luxury platform onto a **single Linux VPS or private server** running native **Node.js 22 LTS**, **PostgreSQL 17**, **PM2 Process Manager**, and **Nginx** with automated SSL via **Let's Encrypt Certbot**.
 
 ---
 
-## 🏛️ VPS Topology
+## 🏛️ System Architecture
 
 ```
 Internet (HTTPS)
    │
    ▼
-[Port 80/443] 🛡️ Nginx (Reverse Proxy + Let's Encrypt SSL + Gzip + Rate Limits)
+[Port 80/443] 🛡️ Nginx (Reverse Proxy + Let's Encrypt SSL + Gzip + Static Cache)
    │
    ▼
-[Port 3000]   ⚡ Next.js App (Managed by PM2 Process Manager + Built-In Rate Limiting & CSP)
+[Port 3000]   ⚡ Next.js 15 App (PM2 Cluster + Sliding-Window Rate Limiter + CSP)
    │
    ▼
-[Port 5432]   💾 Native PostgreSQL / Local Database (Loopback Socket)
+[Port 5432]   💾 Native PostgreSQL 17 (Local Loopback Socket — 0 Cloud Bills)
 ```
 
 ---
 
-## 📋 Step 1: Initial VPS Setup & Firewall
+## ⚡ Fast-Track: Automated Server Bootstrap (1-Command)
 
-SSH into your fresh VPS as `root`:
+If setting up a fresh Debian 13 or Ubuntu 22/24 machine, you can run the automated provisioner:
+
 ```bash
+# SSH into your VPS / Server
 ssh root@YOUR_SERVER_IP
+
+# Clone repository into /var/www/lifaz
+mkdir -p /var/www/lifaz
+git clone <YOUR_GIT_REPO_URL> /var/www/lifaz
+cd /var/www/lifaz
+
+# Run the automated bootstrap script
+sudo ./scripts/setup-server.sh
 ```
 
-Update packages and install core build utilities:
+The script automatically provisions UFW firewall, Nginx, PostgreSQL 17, Node.js 22 LTS, PM2, Certbot, creates `lifaz_db` and user `lifaz_admin`, and installs a daily 03:00 AM backup cron job.
+
+---
+
+## 🛠️ Step-by-Step Manual Setup
+
+### 1. Firewall & Security Configuration
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl git ufw build-essential
-```
+sudo apt install -y curl git ufw build-essential nginx postgresql postgresql-contrib certbot python3-certbot-nginx
 
-Configure firewall:
-```bash
 sudo ufw allow OpenSSH
 sudo ufw allow 'Nginx Full'
-sudo ufw enable -y
+sudo ufw enable
 ```
 
----
-
-## ⚡ Step 2: Install Node.js 20 LTS & PM2
-
+### 2. Install Node.js LTS (v22.x) & PM2
 ```bash
-# Add NodeSource repository for Node.js 20 LTS
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 sudo apt install -y nodejs
-
-# Verify versions
-node -v # v20.x.x
-npm -v
-
-# Install PM2 globally
 sudo npm install -g pm2
 ```
 
----
-
-## 🐘 Step 3: Install & Configure Native PostgreSQL (Optional if using Prisma)
-
+### 3. Initialize Native PostgreSQL 17
 ```bash
-sudo apt install -y postgresql postgresql-contrib
-
-# Start and enable PostgreSQL on boot
-sudo systemctl start postgresql
 sudo systemctl enable postgresql
-```
+sudo systemctl start postgresql
 
-Create database and user:
-```bash
 sudo -u postgres psql
 ```
 
-Inside the `psql` console, run:
+Inside the `psql` console:
 ```sql
 CREATE DATABASE lifaz_db;
-CREATE USER lifaz_admin WITH ENCRYPTED PASSWORD 'ChooseAStrongPassword123!';
+CREATE USER lifaz_admin WITH ENCRYPTED PASSWORD 'fahad123@';
 GRANT ALL PRIVILEGES ON DATABASE lifaz_db TO lifaz_admin;
+\c lifaz_db
 GRANT ALL ON SCHEMA public TO lifaz_admin;
 \q
 ```
 
----
-
-## 📦 Step 4: Clone Repository & Build Application
-
+### 4. Build Application & Synchronize Database
 ```bash
-# Create web directory and set ownership
-sudo mkdir -p /var/www/lifaz
-sudo chown -R $USER:$USER /var/www/lifaz
+cd /var/www/lifaz/apps/web
+# Configure .env.local
+cp .env.example .env.local
+# Set DATABASE_URL="postgresql://lifaz_admin:fahad123%40@localhost:5432/lifaz_db?schema=public"
 
-# Clone your repository
-cd /var/www/lifaz
-git clone <YOUR_GIT_REPO_URL> .
+cd /var/www/lifaz/packages/db
+npx prisma db push
 
-# Install dependencies
+cd /var/www/lifaz/apps/web
 npm install
-```
-
-Configure environment variables:
-```bash
-nano apps/web/.env
-```
-
-Add your production configuration:
-```env
-NODE_ENV="production"
-PORT=3000
-NEXT_PUBLIC_APP_URL="https://lifaz.shop"
-
-# Admin Master Security Key
-ADMIN_SECRET_KEY="ChooseAStrongAdminPasskey2026!"
-
-# Optional PostgreSQL Connection (if using Prisma)
-DATABASE_URL="postgresql://lifaz_admin:ChooseAStrongPassword123!@localhost:5432/lifaz_db?schema=public"
-
-# Auth Secrets
-NEXTAUTH_SECRET="your-generated-random-32-character-secret-key"
-NEXTAUTH_URL="https://lifaz.shop"
-```
-
-Build the Next.js production bundle:
-```bash
-cd apps/web
 npm run build
 ```
 
----
-
-## 🔄 Step 5: Start & Manage App with PM2
-
+### 5. Launch with PM2 Process Manager
 ```bash
-# Start Next.js with PM2
-cd /var/www/lifaz/apps/web
-pm2 start npm --name "lifaz" -- start
-
-# Save process list and generate systemd startup hook
+cd /var/www/lifaz
+pm2 start ecosystem.config.js
 pm2 save
-pm2 startup
+sudo pm2 startup
 ```
 
-Useful PM2 commands:
-- `pm2 status` — View application status and memory usage.
-- `pm2 logs lifaz` — View live application logs.
-- `pm2 restart lifaz` — Restart the application after code updates.
-
----
-
-## 🛡️ Step 6: Configure Nginx Reverse Proxy & Security
-
-Install Nginx:
+### 6. Configure Nginx Reverse Proxy & Free SSL
 ```bash
-sudo apt install -y nginx
-```
+sudo cp /var/www/lifaz/nginx.conf.example /etc/nginx/sites-available/lifaz.shop
+sudo sed -i 's/YOUR_DOMAIN.com/lifaz.shop/g' /etc/nginx/sites-available/lifaz.shop
+sudo ln -sf /etc/nginx/sites-available/lifaz.shop /etc/nginx/sites-enabled/
+sudo rm -f /etc/nginx/sites-enabled/default
 
-Create site configuration:
-```bash
-sudo nano /etc/nginx/sites-available/lifaz.shop
-```
-
-Paste configuration:
-```nginx
-# Rate Limiting Zone at Nginx Level
-limit_req_zone $binary_remote_addr zone=lifaz_limit:10m rate=30r/s;
-
-server {
-    listen 80;
-    listen [::]:80;
-    server_name lifaz.shop www.lifaz.shop;
-
-    # Maximum upload size for high-res product photos & size chart specs
-    client_max_body_size 25M;
-
-    # Apply Rate Limiting
-    limit_req zone=lifaz_limit burst=50 nodelay;
-
-    # Gzip Compression
-    gzip on;
-    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
-    gzip_vary on;
-
-    # Cache static Next.js assets
-    location /_next/static/ {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_cache_valid 200 365d;
-        add_header Cache-Control "public, max-age=31536000, immutable";
-    }
-
-    # Proxy all traffic to Next.js
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_cache_bypass $http_upgrade;
-    }
-}
-```
-
-Enable site:
-```bash
-sudo ln -s /etc/nginx/sites-available/lifaz.shop /etc/nginx/sites-enabled/
-sudo rm /etc/nginx/sites-enabled/default
+# Test syntax and reload Nginx
 sudo nginx -t
 sudo systemctl reload nginx
+
+# Provision Let's Encrypt SSL
+sudo certbot --nginx -d lifaz.shop -d www.lifaz.shop --non-interactive --agree-tos -m concierge@lifaz.shop
 ```
 
 ---
 
-## 🔒 Step 7: Setup Free SSL with Let's Encrypt
+## 🔁 Automated Backups & Server Migration
 
-Ensure your domain DNS `A` records (`@` and `www`) point to your VPS IP, then run:
-
-```bash
-sudo apt install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d lifaz.shop -d www.lifaz.shop
-```
-
-Certbot automatically schedules auto-renewal cron tasks.
+- **Daily Backups**: Automated daily at 03:00 AM via [`scripts/backup-db.sh`](file:///home/fahad/Desktop/LIFAZ/lifaz.shop/scripts/backup-db.sh) with 30-day automatic retention.
+- **Server Migration**: If you ever need to change VPS provider, upgrade hardware, or move to a new machine, follow the complete step-by-step guide in [`SERVER_MIGRATION.md`](file:///home/fahad/Desktop/LIFAZ/lifaz.shop/SERVER_MIGRATION.md).
 
 ---
 
-## 💾 Step 8: Automated Daily Database Backups
+## 📊 Maintenance Commands
 
-Create a daily local backup cron job:
-```bash
-sudo mkdir -p /var/backups/lifaz_db
-crontab -e
-```
-
-For PostgreSQL:
-```cron
-0 3 * * * PGPASSWORD='ChooseAStrongPassword123!' pg_dump -U lifaz_admin -h localhost lifaz_db | gzip > /var/backups/lifaz_db/db_$(date +\%F).sql.gz && find /var/backups/lifaz_db/ -type f -mtime +14 -delete
-```
-
-For Flat-File Database (`lifaz-database.json`):
-```cron
-0 3 * * * cp /var/www/lifaz/apps/web/data/lifaz-database.json /var/backups/lifaz_db/lifaz-db_$(date +\%F).json && find /var/backups/lifaz_db/ -type f -mtime +14 -delete
-```
+| Action | Command |
+| :--- | :--- |
+| **Check PM2 Status** | `pm2 list` / `pm2 logs` |
+| **Reload App (Zero Downtime)** | `pm2 reload ecosystem.config.js` |
+| **Check PostgreSQL** | `sudo systemctl status postgresql` |
+| **Check Nginx** | `sudo systemctl status nginx` |
+| **Trigger Database Backup** | `./scripts/backup-db.sh` |
+| **Export Entire System Bundle** | `./scripts/export-data.sh` |

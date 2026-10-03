@@ -1,0 +1,60 @@
+# LIFAZ Atelier — Nginx Reverse Proxy Configuration (Debian 13)
+# Place in: /etc/nginx/sites-available/lifaz.conf
+# Enable: sudo ln -s /etc/nginx/sites-available/lifaz.conf /etc/nginx/sites-enabled/
+
+# Rate limiting zones
+limit_req_zone $binary_remote_addr zone=lifaz_req_limit:10m rate=30r/s;
+limit_conn_zone $binary_remote_addr zone=lifaz_conn_limit:10m;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name lifaz.shop www.lifaz.shop; # Replace with your domain or server IP
+
+    # Redirect HTTP to HTTPS (When SSL certificate is active)
+    # return 301 https://$host$request_uri;
+
+    # Security Headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    # Static Assets Caching
+    location /_next/static/ {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_cache_valid 200 365d;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        expires 365d;
+        access_log off;
+    }
+
+    # Main Next.js Application Proxy
+    location / {
+        limit_req zone=lifaz_req_limit burst=50 nodelay;
+        limit_conn lifaz_conn_limit 30;
+
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+    }
+
+    # Custom Error Pages
+    error_page 502 503 504 /50x.html;
+    location = /50x.html {
+        root /usr/share/nginx/html;
+    }
+}

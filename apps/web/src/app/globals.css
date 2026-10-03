@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+@theme {
+  --color-khy-bg: #FFFFFF;
+  --color-khy-black: #000000;
+  --color-khy-offblack: #111111;
+  --color-khy-grey-50: #F9F9F9;
+  --color-khy-grey-100: #F3F3F3;
+  --color-khy-grey-200: #E5E5E5;
+  --color-khy-grey-400: #999999;
+  --color-khy-grey-600: #666666;
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+:root {
+  --background: #FFFFFF;
+  --foreground: #000000;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  letter-spacing: -0.01em;
+}
+
+a,
+button {
+  text-decoration: none;
+}
+
+a:hover,
+button:hover {
+  text-decoration: none;
+}
+
+/* KHY Editorial Typographic Tokens */
+.font-khy-display {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.03em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+.font-khy-sans {
+  font-family: var(--font-sans);
+}
+
+.tracking-khy-wide {
+  letter-spacing: 0.15em;
+}
+
+.tracking-khy-ultra {
+  letter-spacing: 0.25em;
+}
+
+/* Custom Sleek Scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.25);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+/* Print Media Styles for Dispatch Invoices & Parcel Stickers */
+@media print {
+  body {
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #printable-invoice,
+  #printable-invoice * {
+    visibility: visible;
+  }
+  #printable-invoice {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: #FFFFFF !important;
+    color: #000000 !important;
+    border: none !important;
+    box-shadow: none !important;
+  }
+  .break-inside-avoid {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+  .break-after-page {
+    break-after: page !important;
+    page-break-after: always !important;
+  }
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+}

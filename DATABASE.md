@@ -1,172 +1,101 @@
-# LIFAZ Atelier — Database Architecture & Guide
+# LIFAZ Atelier — Database Architecture & Scaling Roadmap
+## Native PostgreSQL & Zero-Cloud Data Engine
 
-This document describes the database design, data models, persistence mechanics, security protections, and visual management tools implemented in **LIFAZ Atelier**.
-
----
-
-## 💾 Storage Architecture
-
-LIFAZ uses a **two-tier database strategy**:
-
-1. **Local Persistent Storage Engine (Default for local & single-server execution):**
-   - **Path:** `apps/web/data/lifaz-database.json`
-   - **Characteristics:** Zero external dependencies, starts immediately with `npm run dev`, persists changes permanently across restarts and sessions, and does not require background database containers or third-party cloud services.
-   - **Server Layer:** Managed by [`apps/web/src/lib/server-db.ts`](file:///c:/Users/USER/lifaz/apps/web/src/lib/server-db.ts).
-
-2. **Prisma ORM & Relational Schema (For multi-server VPS deployments & migrations):**
-   - **File:** [`packages/db/schema.prisma`](file:///c:/Users/USER/lifaz/packages/db/schema.prisma)
-   - **Supported Providers:** SQLite (Local) / PostgreSQL (Production VPS).
+This document details the production database architecture, schema definitions, backup automation, and migration procedures for **LIFAZ Atelier**.
 
 ---
 
-## 🗃️ Data Models & Schemas (7 Native Tables)
+## 🏛️ Database Engine Architecture
 
-### 1. `products` (Catalog Pieces)
-Stores garment metadata, BDT pricing, photos, size inventory, custom size chart blueprints, and fit advisory notes.
-```json
-{
-  "id": "lifaz-01",
-  "title": "FAUX LEATHER TRENCH COAT",
-  "slug": "faux-leather-trench-coat",
-  "price": 18500,
-  "drop": "Drop 001: Faux Leather & Moto",
-  "dropNumber": 1,
-  "category": "Outerwear",
-  "color": "Deep Black",
-  "colorHex": "#111111",
-  "description": "An oversized faux leather trench coat with sculpted lapels and belted waist.",
-  "details": ["Floor-length dramatic silhouette", "Removable buckled belt"],
-  "fabrication": ["Face: 100% Polyurethane", "Lining: 100% Polyester Satin"],
-  "images": ["https://images.unsplash.com/..."],
-  "sizeChartImage": "data:image/jpeg;base64,...",
-  "sizeChartNotes": "Model is 6'1\" (185cm) wearing Size M. Boxy oversized drape with dropped shoulders.",
-  "variants": [
-    { "id": "v1-xs", "size": "XS", "color": "Deep Black", "sku": "LIFAZ-01-XS", "inventory": 8, "inStock": true },
-    { "id": "v1-s", "size": "S", "color": "Deep Black", "sku": "LIFAZ-01-S", "inventory": 15, "inStock": true }
-  ],
-  "rating": 4.9,
-  "reviewCount": 128,
-  "featured": true,
-  "badge": "Iconic"
-}
+LIFAZ operates on a **100% self-hosted, native PostgreSQL engine** running directly on the Linux server (`Debian 13 / Ubuntu 22.04+`):
+
+- **Database Engine**: Native PostgreSQL 17.x daemon on `localhost:5432` / local Unix domain socket.
+- **Database Name**: `lifaz_db`
+- **Owner Role**: `lifaz_admin`
+- **ORM & Type Safety**: Prisma ORM with strongly typed schema models in [`packages/db/schema.prisma`](file:///home/fahad/Desktop/LIFAZ/lifaz.shop/packages/db/schema.prisma).
+- **Client Connector**: Direct connection pooling via [`apps/web/src/lib/prisma.ts`](file:///home/fahad/Desktop/LIFAZ/lifaz.shop/apps/web/src/lib/prisma.ts).
+- **Dual Fallback Snapshot Vault**: POSIX atomic JSON rolling snapshot engine in `apps/web/data/` for instantaneous offline reads and fast recovery.
+
+### Why 100% Self-Hosted (Zero Cloud Dependencies)?
+1. **0 Monthly Cloud Bills**: No Supabase, AWS RDS, Neon, or PlanetScale compute or bandwidth fees.
+2. **Sub-Millisecond Query Latency**: Database queries execute over local loopback (`127.0.0.1:5432`), bypassing internet hops.
+3. **Data Sovereignty**: Complete control over all customer orders, payment TrxIDs, VIP profiles, and archival logs.
+4. **Effortless Portability**: Transfer the entire store to any VPS, bare-metal server, or private device in under 5 minutes.
+
+---
+
+## 🗃️ Complete Data Schema (10 Tables)
+
+| Model Name | Primary Keys & Indexes | Description & Stored Attributes |
+| :--- | :--- | :--- |
+| **`Product`** | `id` (UUID), `slug` (unique) | Garment title, slug, BDT pricing, compareAtPrice, color, colorHex, details, fabrication, images, sizeChartImage, sizeChartNotes, rating, reviewCount, featured, badge. |
+| **`ProductVariant`** | `id` (UUID), `sku` (unique), `productId` | Relational size and inventory matrix (`XS`, `S`, `M`, `L`, `XL`, `Custom`) with real-time stock counters. |
+| **`Drop`** | `id` (UUID), `dropNumber` (unique) | Capsule drop release metadata, title, manifesto name, subtitle, description, hero banner, lookbook chapters, status (`Active`, `Upcoming`, `Archived`), and release date. |
+| **`Category`** | `id` (UUID), `slug` (unique) | Store department taxonomy (`outerwear`, `tops`, `tailoring`, `dresses`, `leather-goods`, `accessories`) and display order. |
+| **`Order`** | `id` (UUID), `orderNumber` (unique) | 64-District deliveries, customer coordinates, advance delivery fee, due amount, payment method, payment status, TrxID, order stage, and tracking. |
+| **`PaymentMethodConfig`** | `id` (UUID) | Dynamic payment channels (bKash Merchant, Nagad Merchant, Cash on Delivery, Bank Transfer, Visa/Mastercard). |
+| **`User`** | `id` (UUID), `phone` (unique), `email` | Client VIP accounts, hashed passkeys, saved delivery addresses, VIP tier status, and order history. |
+| **`Inquiry`** | `id` (UUID) | Concierge desk messages, contact tickets, and bespoke tailoring requests. |
+| **`Subscriber`** | `id` (UUID), `email` (unique) | VIP runway newsletter registrations and notification preferences. |
+| **`SystemSettings`** | `key` (unique) | Live atelier configurations, runway hero typography, mosaic layouts, and maintenance banners. |
+
+---
+
+## 🔒 Connection String & Environment Setup
+
+Configure your PostgreSQL credentials in `apps/web/.env.local`:
+
+```env
+# Native PostgreSQL Database on Localhost (100% Self-Hosted on VPS)
+DATABASE_URL="postgresql://lifaz_admin:fahad123%40@localhost:5432/lifaz_db?schema=public"
 ```
 
-### 2. `drops` (Capsule Drops & Seasonal Releases)
-Full CRUD table powering the capsule drop system and lookbook collections.
-```json
-{
-  "id": "drop-001",
-  "dropNumber": 1,
-  "title": "Drop 001: Faux Leather & Moto",
-  "name": "THE RAW MINIMALISM MANIFESTO",
-  "subtitle": "In collaboration with Atelier Core",
-  "description": "Architectural drapes, sculpted silhouettes, and bonded vegan leather outerwear.",
-  "heroImage": "https://images.unsplash.com/photo-1548883354-7622d03aca27?q=80&w=1600&auto=format&fit=crop",
-  "status": "Active",
-  "releaseDate": "ACTIVE NOW"
-}
-```
+> **Note on Special Characters**: If the database password contains special characters such as `@`, ensure it is URL-percent-encoded (`@` -> `%40`).
 
-### 3. `orders` (Orders & Dispatch)
-Recorded whenever a customer places an order on `/checkout`.
-```json
-{
-  "id": "LIFAZ-BD-948210",
-  "customer": "Nafis Rahman",
-  "email": "nafis.rahman@dhaka.com",
-  "phone": "+880 1711-234567",
-  "items": "Faux Leather Trench Coat (S) x1",
-  "total": 18580,
-  "status": "Order Confirmed",
-  "paymentMethod": "Cash on Delivery",
-  "date": "OCT 2, 2026"
-}
-```
+---
 
-### 4. `categories` (Category Taxonomy)
-```json
-[
-  "Outerwear",
-  "Dresses",
-  "Tops",
-  "Bottoms",
-  "Fleece",
-  "Accessories"
-]
-```
+## 🔄 Schema Synchronization & Migrations
 
-### 5. `inquiries` (Concierge Contact Desk)
-Created from the contact page at `/pages/contact`.
-```json
-{
-  "id": "inq-1",
-  "ticketNumber": "CONCIERGE-849201",
-  "name": "Tanvir Hossain",
-  "email": "tanvir@dhaka.atelier",
-  "phone": "+880 1711-000001",
-  "subject": "Order Status Inquiry",
-  "message": "Could you please confirm the dispatch date for my coat order?",
-  "orderNumber": "LIFAZ-BD-948210",
-  "status": "Open",
-  "createdAt": "2026-10-02T10:15:00.000Z"
-}
-```
+```bash
+# Push schema changes directly to PostgreSQL
+cd packages/db
+npx prisma db push
 
-### 6. `subscribers` (VIP Newsletter Drop Registrations)
-```json
-{
-  "id": "sub-1",
-  "email": "vip.collector@dhaka.com",
-  "subscribedAt": "2026-09-28T08:30:00.000Z"
-}
-```
+# Open interactive web GUI for live table inspections
+npx prisma studio
 
-### 7. `hero` (Homepage Hero Banner & Editorial Studio)
-```json
-{
-  "bannerTag": "Atelier Capsule Collection // 001",
-  "showBannerTag": true,
-  "title": "FAUX LEATHER & MOTO",
-  "subtitle": "Monumental proportions, sculpted silhouettes, and cruelty-free craftsmanship.",
-  "image": "https://images.unsplash.com/...",
-  "ctaPrimaryText": "Shop Drop 001",
-  "ctaPrimaryLink": "/collections/drop-001",
-  "ctaSecondaryText": "Explore Archive",
-  "ctaSecondaryLink": "/collections/all",
-  "headlineSize": "monumental",
-  "headlineFontSizeRem": 4.5,
-  "headlineTracking": "wide",
-  "headlineAlign": "center",
-  "headlineColor": "#FFFFFF",
-  "headlineTransform": "uppercase",
-  "headlineLineHeight": 1.1,
-  "headlineShadow": "subtle",
-  "photoZoom": 100,
-  "photoBrightness": 100,
-  "photoContrast": 100,
-  "photoPosition": "center",
-  "photoFilter": "none"
-}
+# Generate updated Prisma Client TypeScript types
+npx prisma generate
 ```
 
 ---
 
-## 🛡️ Database Security & Hardening
+## 🛡️ Automated Backup & Disaster Recovery
 
-1. **SQL Injection Immunity:** Zero SQL concatenation — queries operate on structured JSON objects.
-2. **Payload Sanitization:** All incoming mutations are filtered through [`src/lib/validation.ts`](file:///c:/Users/USER/lifaz/apps/web/src/lib/validation.ts) to strip HTML/scripts and block prototype pollution.
-3. **Protected API Endpoints:** Mutating actions on `/api/db`, `/api/products`, `/api/drops`, `/api/categories`, and `/api/settings/hero` require valid `x-admin-key` authentication.
-4. **Rate Limiting:** Sliding-window rate limiter prevents spam and resource exhaustion.
+LIFAZ includes built-in scripts for both automated daily backups and full system migrations:
 
----
+### 1. Daily Automated Database Backups
+Automated script: [`scripts/backup-db.sh`](file:///home/fahad/Desktop/LIFAZ/lifaz.shop/scripts/backup-db.sh)
+- Dumps PostgreSQL schema and data using `pg_dump`.
+- Creates compressed `.sql.gz` archives in `backups/` and `apps/web/data/backups/`.
+- Automatically purges backups older than 30 days to protect disk space.
+- Run manually: `./scripts/backup-db.sh`
+- Automated via Crontab:
+  ```cron
+  0 3 * * * /var/www/lifaz/scripts/backup-db.sh >> /var/log/lifaz_backup.log 2>&1
+  ```
 
-## 🖥️ Visual Database Inspector in Admin Portal
+### 2. Full System Export & Migration Archive
+Automated script: [`scripts/export-data.sh`](file:///home/fahad/Desktop/LIFAZ/lifaz.shop/scripts/export-data.sh)
+- Generates a full portable archive (`lifaz-migration-YYYYMMDD_HHMMSS.tar.gz`) containing:
+  - Complete PostgreSQL SQL dump
+  - JSON snapshots and data stores
+  - Media uploads
+  - Environment blueprints
+- See [`SERVER_MIGRATION.md`](file:///home/fahad/Desktop/LIFAZ/lifaz.shop/SERVER_MIGRATION.md) for step-by-step transfer instructions.
 
-Open **`http://localhost:3000/admin`** and navigate to the **"Local Database Engine"** tab to:
-
-- 📊 View real-time disk metrics, file size, and total row counts.
-- 🗃️ Switch between all 7 tables with instant search.
-- 🔍 Perform instant multi-field searches.
-- 📋 Copy table data formatted as JSON.
-- 📥 Download full JSON backup snapshots.
-- 🗑️ Delete records directly from the database file.
+### 3. One-Command Data Restoration
+Automated script: [`scripts/restore-data.sh`](file:///home/fahad/Desktop/LIFAZ/lifaz.shop/scripts/restore-data.sh)
+```bash
+./scripts/restore-data.sh backups/lifaz-migration-YYYYMMDD_HHMMSS.tar.gz
+```

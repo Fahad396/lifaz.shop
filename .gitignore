@@ -35,3 +35,17 @@ Thumbs.db
 
 # Temporary files
 *.tsbuildinfo
+
+# Backups & Dumps
+backups/*.tar.gz
+backups/*.sql
+backups/*.sql.gz
+*.sql
+
+# Package & App Specific
+packages/db/.env
+packages/db/node_modules/
+apps/web/.env.local
+apps/web/.env
+apps/web/data/backups/
+
